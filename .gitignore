@@ -9,3 +9,7 @@ dist/
 *.swp
 
 .vscode/
+venv*/*
+.python-*
+*.pkl
+*.sh
