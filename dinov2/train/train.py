@@ -22,6 +22,15 @@ from dinov2.utils.utils import CosineScheduler
 
 from dinov2.train.ssl_meta_arch import SSLMetaArch
 
+from omegaconf import OmegaConf
+
+try:
+    import wandb
+
+    WANDB_AVAILABLE = True
+except ImportError:
+    WANDB_AVAILABLE = False
+
 
 torch.backends.cuda.matmul.allow_tf32 = True  # PyTorch 1.12 sets this to False by default
 logger = logging.getLogger("dinov2")
@@ -119,6 +128,43 @@ def apply_optim_scheduler(optimizer, lr, wd, last_layer_lr):
         param_group["lr"] = (last_layer_lr if is_last_layer else lr) * lr_multiplier
 
 
+def init_wandb(cfg):
+    """Initialize Weights & Biases logging on the main process only.
+
+    Returns the wandb run object, or None if logging is disabled, the current
+    process is not the main one, or the `wandb` package is not installed (in
+    which case training simply continues without W&B).
+    """
+    if not distributed.is_main_process():
+        return None
+
+    wcfg = getattr(cfg, "wandb", None)
+    if wcfg is None or not wcfg.get("enabled", True):
+        return None
+
+    if not WANDB_AVAILABLE:
+        logger.warning(
+            "wandb logging is enabled in the config but the `wandb` package is "
+            "not installed -- continuing without W&B. Install it with "
+            "`pip install wandb` and run `wandb login`."
+        )
+        return None
+
+    tags = list(wcfg.tags) if wcfg.get("tags", None) else None
+    run = wandb.init(
+        project=wcfg.get("project", "dinov2_pretraining"),
+        entity=wcfg.get("entity", None),
+        name=wcfg.get("name", None),
+        group=wcfg.get("group", None),
+        tags=tags,
+        mode=wcfg.get("mode", "online"),
+        dir=cfg.train.output_dir,
+        config=OmegaConf.to_container(cfg, resolve=True),
+    )
+    logger.info("Weights & Biases logging enabled (project=%s).", wcfg.get("project", "dinov2"))
+    return run
+
+
 def do_test(cfg, model, iteration):
     new_state_dict = model.teacher.state_dict()
 
@@ -135,6 +181,10 @@ def do_train(cfg, model, resume=False):
     model.train()
     inputs_dtype = torch.half
     fp16_scaler = model.fp16_scaler  # for mixed precision training
+
+    # Weights & Biases logging (main process only; no-op if disabled/missing)
+    wandb_run = init_wandb(cfg)
+    wandb_log_freq = int(getattr(getattr(cfg, "wandb", object()), "log_freq", 10) or 10)
 
     # setup optimizer
 
@@ -291,6 +341,20 @@ def do_train(cfg, model, resume=False):
         metric_logger.update(current_batch_size=current_batch_size)
         metric_logger.update(total_loss=losses_reduced, **loss_dict_reduced)
 
+        # Weights & Biases logging
+        if wandb_run is not None and (iteration % wandb_log_freq == 0):
+            wandb_log_dict = {
+                "train/total_loss": losses_reduced,
+                "train/lr": lr,
+                "train/wd": wd,
+                "train/mom": mom,
+                "train/last_layer_lr": last_layer_lr,
+                "train/current_batch_size": current_batch_size,
+                "train/teacher_temp": teacher_temp,
+            }
+            wandb_log_dict.update({f"train/{k}": v for k, v in loss_dict_reduced.items()})
+            wandb_run.log(wandb_log_dict, step=iteration)
+
         # checkpointing and testing
 
         if cfg.evaluation.eval_period_iterations > 0 and (iteration + 1) % cfg.evaluation.eval_period_iterations == 0:
@@ -300,6 +364,8 @@ def do_train(cfg, model, resume=False):
 
         iteration = iteration + 1
     metric_logger.synchronize_between_processes()
+    if wandb_run is not None:
+        wandb_run.finish()
     return {k: meter.global_avg for k, meter in metric_logger.meters.items()}
 
 

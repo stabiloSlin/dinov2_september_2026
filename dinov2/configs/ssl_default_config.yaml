@@ -121,3 +121,12 @@ crops:
   local_crops_size: 96
 evaluation:
   eval_period_iterations: 12500
+wandb:
+  enabled: true          # set false (or wandb.mode=disabled) to turn logging off
+  project: dinov2
+  entity: null           # your W&B team/user; null = default from `wandb login`
+  name: null             # run name; null = auto-generated
+  group: null
+  tags: []
+  mode: online           # online | offline | disabled
+  log_freq: 10           # log every N iterations
