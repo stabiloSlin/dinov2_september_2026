@@ -19,10 +19,17 @@ from dinov2.fsdp import get_fsdp_wrapper, ShardedGradScaler, get_fsdp_modules, r
 from dinov2.models.vision_transformer import BlockChunk
 
 
+# xFormers has been removed: DINOv2 training here runs in pure PyTorch so it
+# works on a single consumer GPU without any xformers wheel. The only place
+# fmha.BlockDiagonalMask was used (packing the DINO-head inputs) is replaced by
+# an equivalent torch.cat / torch.split below, because the head is applied
+# per token and therefore does not benefit from sequence packing.
+"""
 try:
     from xformers.ops import fmha
 except ImportError:
     raise AssertionError("xFormers is required for training")
+"""
 
 
 logger = logging.getLogger("dinov2")
@@ -261,10 +268,22 @@ class SSLMetaArch(nn.Module):
                     :n_masked_patches
                 ]
 
+        # 2: run (xFormers-free)
+        # Each entry of inputs_for_student_head_list has shape [1, n_i, D] with a
+        # different n_i. The DINO head is a per-token MLP, so instead of packing
+        # the groups with a block-diagonal attention bias we simply concatenate
+        # them along the token axis, run the head once, and split back. This is
+        # mathematically identical to the original xformers packing.
+        n_tokens_per_group = [t.shape[1] for t in inputs_for_student_head_list]
+        cat_inputs = torch.cat(inputs_for_student_head_list, dim=1)
+        head_output = self.student.dino_head(cat_inputs)
+        outputs_list = list(torch.split(head_output, n_tokens_per_group, dim=1))
+   
+        """
         # 2: run
         _attn_bias, cat_inputs = fmha.BlockDiagonalMask.from_tensor_list(inputs_for_student_head_list)
         outputs_list = _attn_bias.split(self.student.dino_head(cat_inputs))
-
+        """
         # 3a: local crops cls tokens
         student_local_cls_tokens_after_head = outputs_list.pop(0).squeeze(0)
 
@@ -348,9 +367,22 @@ class SSLMetaArch(nn.Module):
     def fsdp_synchronize_streams(self):
         if self.need_to_synchronize_fsdp_streams:
             torch.cuda.synchronize()
+            """
             self.student.dino_head._streams = (
                 self.teacher.dino_head._streams
             ) = self.student.backbone._streams = self.teacher.backbone._streams
+            """
+            try:
+                self.student.dino_head._streams = (
+                    self.teacher.dino_head._streams
+                ) = self.student.backbone._streams = self.teacher.backbone._streams
+            except AttributeError:
+                # Newer PyTorch FSDP manages its CUDA streams internally and no
+                # longer exposes a `_streams` attribute. The full-device
+                # torch.cuda.synchronize() above already orders the teacher EMA
+                # update safely on a single GPU, so we simply skip the manual
+                # stream sharing here.
+                pass
             self.need_to_synchronize_fsdp_streams = False
 
     def update_teacher(self, m):

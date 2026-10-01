@@ -1,0 +1,30 @@
+# Single-GPU DINOv2 pre-training config
+# Only the values below override dinov2/configs/ssl_default_config.yaml.
+train:
+  # Path to a folder of images (torchvision ImageFolder layout:
+  # one sub-directory per "class"; labels are ignored for SSL).
+  # /home/porsche/Documents/Datasets/_foundation_model_pretraining_ds/circular_masked_images
+  # /home/porsche/Documents/Datasets/_foundation_model_pretraining_ds/rectangular_images
+  dataset_path: "/home/porsche/Documents/Datasets/_foundation_model_pretraining_ds/"
+  # Images per step on the single GPU. 32 is safe; with 30 GB VRAM and
+  # vit_small you can push this to 64-128 for better throughput.
+  batch_size_per_gpu: 32
+  # Iterations that count as one "epoch" (drives the LR/schedule length).
+  # Lower this for small datasets / quick experiments (default is 1250). # 377950
+  OFFICIAL_EPOCH_LENGTH: 1250
+  num_workers: 10
+student:
+  # Default in ssl_default_config.yaml is vit_large -- far too heavy for a
+  # single consumer GPU. vit_small matches this config's name ("cle_vits").
+  arch: vit_small
+  patch_size: 16
+  # Split the backbone into chunks so FSDP can wrap/offload them.
+  block_chunks: 4
+teacher:
+  momentum_teacher: 0.994
+optim:
+  epochs: 2000
+  #weight_decay_end: 0.2
+  #base_lr: 2.0e-04 # learning rate for a batch size of 1024
+  #warmup_epochs: 80
+  #layerwise_decay: 1.0

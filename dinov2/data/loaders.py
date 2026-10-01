@@ -12,6 +12,8 @@ from torch.utils.data import Sampler
 
 from .datasets import ImageNet, ImageNet22k, HPAone, HPAFoV, CHAMMI_CP, CHAMMI_HPA, CHAMMI_WTC
 from .samplers import EpochSampler, InfiniteSampler, ShardedInfiniteSampler
+from torchvision.datasets import ImageFolder
+from torchvision import datasets, transforms
 
 
 logger = logging.getLogger("dinov2")
@@ -93,9 +95,16 @@ def make_dataset(
     """
     logger.info(f'using dataset: "{dataset_str}"')
 
-    class_, kwargs = _parse_dataset_str(dataset_str)
-    dataset = class_(transform=transform, target_transform=target_transform, **kwargs)
-
+    # class_, kwargs = _parse_dataset_str(dataset_str)
+    # old one:
+    # dataset = class_(transform=transform, target_transform=target_transform, **kwargs)
+    # added cle dataset:
+    # dataset1 = datasets.ImageFolder(args.first_data_path_, transform=transform)
+    print(f"dataset string: {dataset_str}")
+    dataset_1 = datasets.ImageFolder(root=dataset_str+"/circular_masked_images" ,transform=transform, target_transform=target_transform)
+    dataset_2 = datasets.ImageFolder(root=dataset_str+"/rectangular_images", transform=transform, target_transform=target_transform)
+    dataset = torch.utils.data.ConcatDataset([dataset_1, dataset_2])
+    
     logger.info(f"# of dataset samples: {len(dataset):,d}")
 
     # Aggregated datasets do not expose (yet) these attributes, so add them.

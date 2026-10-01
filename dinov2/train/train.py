@@ -307,6 +307,7 @@ def main(args):
     cfg = setup(args)
 
     model = SSLMetaArch(cfg).to(torch.device("cuda"))
+    # we do not use distributed training
     model.prepare_for_distributed_training()
 
     logger.info("Model:\n{}".format(model))

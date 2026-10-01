@@ -25,6 +25,9 @@ logger = logging.getLogger("dinov2")
 
 
 XFORMERS_ENABLED = os.environ.get("XFORMERS_DISABLED") is None
+print(f"xformer status:  {XFORMERS_ENABLED}")
+XFORMERS_ENABLED = False
+print(f"xformer status:  {XFORMERS_ENABLED}")
 try:
     if XFORMERS_ENABLED:
         from xformers.ops import fmha, scaled_index_add, index_select_cat
@@ -309,8 +312,19 @@ class NestedTensorBlock(Block):
         if isinstance(x_or_x_list, Tensor):
             return super().forward(x_or_x_list)
         elif isinstance(x_or_x_list, list):
+            """
             if not XFORMERS_AVAILABLE:
                 raise AssertionError("xFormers is required for using nested tensors")
             return self.forward_nested(x_or_x_list)
+            """
+            # xFormers-free path. Every element of the list is a uniform batch
+            # (all crops in a group share the same sequence length), so we run
+            # the standard dense block on each group independently instead of
+            # packing the different-length groups with a block-diagonal
+            # attention bias. Same result, pure PyTorch (uses SDPA attention).
+            outputs = []
+            for x in x_or_x_list:
+                outputs.append(super().forward(x))
+            return outputs
         else:
             raise AssertionError
