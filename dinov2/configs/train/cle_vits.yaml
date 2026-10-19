@@ -5,10 +5,10 @@ train:
   # one sub-directory per "class"; labels are ignored for SSL).
   # /home/porsche/Documents/Datasets/_foundation_model_pretraining_ds/circular_masked_images
   # /home/porsche/Documents/Datasets/_foundation_model_pretraining_ds/rectangular_images
-  dataset_path: "/home/porsche/Documents/Datasets/_foundation_model_pretraining_ds/"
+  dataset_path: "/home/aubreville/datasets/_foundation_model_pretraining_ds/"
   # Images per step on the single GPU. 32 is safe; with 30 GB VRAM and
   # vit_small you can push this to 64-128 for better throughput.
-  batch_size_per_gpu: 32
+  batch_size_per_gpu: 512
   # Iterations that count as one "epoch" (drives the LR/schedule length).
   # Lower this for small datasets / quick experiments (default is 1250). # 377950
   OFFICIAL_EPOCH_LENGTH: 1250
@@ -28,3 +28,6 @@ optim:
   #base_lr: 2.0e-04 # learning rate for a batch size of 1024
   #warmup_epochs: 80
   #layerwise_decay: 1.0
+wandb:
+  name: CLE_DINO_V2_trainingset_fixed
+  project: CLE_DINO_V2

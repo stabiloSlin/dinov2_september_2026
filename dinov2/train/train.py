@@ -177,6 +177,9 @@ def do_test(cfg, model, iteration):
         torch.save({"teacher": new_state_dict}, teacher_ckp_path)
 
 
+def drop_target(_):
+    return ()
+
 def do_train(cfg, model, resume=False):
     model.train()
     inputs_dtype = torch.half
@@ -253,7 +256,7 @@ def do_train(cfg, model, resume=False):
     dataset = make_dataset(
         dataset_str=cfg.train.dataset_path,
         transform=data_transform,
-        target_transform=lambda _: (),
+        target_transform=drop_target,
     )
     # sampler_type = SamplerType.INFINITE
     sampler_type = SamplerType.SHARDED_INFINITE
@@ -275,16 +278,10 @@ def do_train(cfg, model, resume=False):
 
     logger.info("Starting training from iteration {}".format(start_iter))
     metrics_file = os.path.join(cfg.train.output_dir, "training_metrics.json")
-    metric_logger = MetricLogger(delimiter="  ", output_file=metrics_file)
+    #metric_logger = MetricLogger(delimiter="  ", output_file=metrics_file)
     header = "Training"
 
-    for data in metric_logger.log_every(
-        data_loader,
-        10,
-        header,
-        max_iter,
-        start_iter,
-    ):
+    for data in data_loader:
         current_batch_size = data["collated_global_crops"].shape[0] / 2
         if iteration > max_iter:
             return
@@ -334,12 +331,12 @@ def do_train(cfg, model, resume=False):
             raise AssertionError
         losses_reduced = sum(loss for loss in loss_dict_reduced.values())
 
-        metric_logger.update(lr=lr)
-        metric_logger.update(wd=wd)
-        metric_logger.update(mom=mom)
-        metric_logger.update(last_layer_lr=last_layer_lr)
-        metric_logger.update(current_batch_size=current_batch_size)
-        metric_logger.update(total_loss=losses_reduced, **loss_dict_reduced)
+#        metric_logger.update(lr=lr)
+#        metric_logger.update(wd=wd)
+#        metric_logger.update(mom=mom)
+#        metric_logger.update(last_layer_lr=last_layer_lr)
+#        metric_logger.update(current_batch_size=current_batch_size)
+#        metric_logger.update(total_loss=losses_reduced, **loss_dict_reduced)
 
         # Weights & Biases logging
         if wandb_run is not None and (iteration % wandb_log_freq == 0):
@@ -363,10 +360,10 @@ def do_train(cfg, model, resume=False):
         periodic_checkpointer.step(iteration)
 
         iteration = iteration + 1
-    metric_logger.synchronize_between_processes()
+    #metric_logger.synchronize_between_processes()
     if wandb_run is not None:
         wandb_run.finish()
-    return {k: meter.global_avg for k, meter in metric_logger.meters.items()}
+    return {'total_loss' : losses_reduced}
 
 
 def main(args):
